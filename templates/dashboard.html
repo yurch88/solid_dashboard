@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            background-color: #ffffff;
+        }
+        .user-container {
+            width: 400px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f7f7f7;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-top: 20px;
+            position: relative;
+        }
+        .user-container .logo-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            position: relative;
+        }
+        .user-container .logo-container img {
+            max-width: 35%;
+            height: auto;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .user-container .logo-container .action-buttons {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            position: absolute;
+            right: 0;
+        }
+        .user-container .logo-container .add-user-btn {
+            width: 19px;
+            height: 19px;
+            object-fit: contain;
+            cursor: pointer;
+        }
+        .user-container .logo-container .logout-btn {
+            width: 60px;
+            height: 60px;
+            object-fit: contain;
+            cursor: pointer;
+        }
+        .user-container .user {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            background-color: #ffffff;
+            padding: 10px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .user-container .user button {
+            background-color: #f7f7f7;
+            color: white;
+            border: none;
+            padding: 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 50px;
+            height: 50px;
+        }
+        .user-container .user button img {
+            width: 17px;
+            height: 17px;
+            object-fit: contain;
+        }
+        .user-container .user button img[src*="download.png"] {
+            width: 27px; /*
+            height: 27px; /*
+        }
+        .user-container .user button:hover {
+            background-color: #e0e0e0;
+        }
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 25px;
+        }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 15px;
+            width: 15px;
+            border-radius: 50px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+        }
+        input:checked + .slider {
+            background-color: #66758d;
+        }
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+        .user-container .user .action-buttons {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .user-container .user small {
+            font-size: 10px;
+            color: gray;
+        }
+    </style>
+</head>
+<body>
+    <div class="user-container">
+        <div class="logo-container">
+            <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Logo">
+            <div class="action-buttons">
+                <img class="add-user-btn" src="{{ url_for('static', filename='images/add.png') }}" alt="Add User" onclick="addUser()">
+                <img class="logout-btn" src="{{ url_for('static', filename='images/logout.png') }}" alt="Logout" onclick="logout()">
+            </div>
+        </div>
+        <div id="user-list">
+            {% for user in users %}
+            <div class="user" id="user-{{ user[0] }}">
+                <span>
+                    {{ user[0] }} <br>
+                    <small>Created on {{ user[1]["created_at"] }}</small>
+                </span>
+                <div class="action-buttons">
+                    <label class="switch">
+                        <input type="checkbox" id="toggle-{{ user[0] }}" onchange="toggleUser('{{ user[0] }}')" {% if user[1]['active'] %}checked{% endif %}>
+                        <span class="slider"></span>
+                    </label>
+                    <button onclick="downloadConfig('{{ user[0] }}')">
+                        <img src="{{ url_for('static', filename='images/download.png') }}" alt="Download">
+                    </button>
+                    <button onclick="deleteConfig('{{ user[0] }}')">
+                        <img src="{{ url_for('static', filename='images/recycle.png') }}" alt="Delete">
+                    </button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <script>
+        function addUser() {
+            var username = prompt('Enter the username for the new client:');
+            if (username) {
+                fetch('/add_user', {
+                    method: 'POST',
+                    body: new URLSearchParams({ 'username': username }),
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === "success") {
+                        const user = data.user;
+                        const userList = document.getElementById("user-list");
+
+                        const newUser = document.createElement("div");
+                        newUser.className = "user";
+                        newUser.id = `user-${user[0]}`;
+                        newUser.innerHTML = `
+                            <span>
+                                ${user[0]} <br>
+                                <small>Created on ${user[1]["created_at"]}</small>
+                            </span>
+                            <div class="action-buttons">
+                                <label class="switch">
+                                    <input type="checkbox" id="toggle-${user[0]}" onchange="toggleUser('${user[0]}')" checked>
+                                    <span class="slider"></span>
+                                </label>
+                                <button onclick="downloadConfig('${user[0]}')">
+                                    <img src="{{ url_for('static', filename='images/download.png') }}" alt="Download">
+                                </button>
+                                <button onclick="deleteConfig('${user[0]}')">
+                                    <img src="{{ url_for('static', filename='images/recycle.png') }}" alt="Delete">
+                                </button>
+                            </div>
+                        `;
+                        userList.appendChild(newUser);
+                    } else {
+                        alert(data.message);
+                    }
+                });
+            }
+        }
+
+        function toggleUser(username) {
+            fetch(`/toggle_user/${username}`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === "success") {
+                        const checkbox = document.getElementById(`toggle-${username}`);
+                        checkbox.checked = data.active;
+                    }
+                });
+        }
+
+        function downloadConfig(username) {
+            window.location.href = `/download_config/${username}`;
+        }
+
+        function deleteConfig(username) {
+            fetch(`/delete_config/${username}`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === "success") {
+                        const userElement = document.getElementById(`user-${username}`);
+                        userElement.remove();
+                    }
+                });
+        }
+
+        function logout() {
+            window.location.href = "/logout";
+        }
+    </script>
+</body>
+</html>

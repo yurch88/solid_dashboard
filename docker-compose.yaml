@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  solid-vpn:
+    build: .
+    container_name: solid-vpn
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      - WG_CONFIG_DIR=/etc/wireguard
+      - WG_INTERFACE=wg0
+      - WG_DEFAULT_ADDRESS=10.10.11.1/24
+      - WG_PORT=51820
+      - WG_HOST=193.19.100.45
+      - WG_DEFAULT_DNS=10.12.2.1
+      - WG_ALLOWED_IPS=10.12.2.0/24,10.10.11.0/24
+      - FLASK_SECRET_KEY=SuperSecureKey123!
+      - FLASK_LOGIN_PASSWORD=SuperPassword!
+    ports:
+      - "80:80"
+      - "51820:51820/udp"
+    volumes:
+      - ./wireguard:/etc/wireguard
+    restart: unless-stopped

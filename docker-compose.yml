@@ -7,16 +7,19 @@ services:
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
     environment:
       - WG_CONFIG_DIR=/etc/wireguard
       - WG_INTERFACE=wg0
-      - WG_DEFAULT_ADDRESS=
+      - WG_DEFAULT_ADDRESS=${wg_default_network}
       - WG_PORT=51820
-      - WG_HOST=
-      - WG_DNS=
-      - WG_ALLOWED_IPS=
-      - FLASK_SECRET_KEY=
-      - FLASK_LOGIN_PASSWORD=
+      - WG_HOST=${tenant_external_ip}
+      - WG_DNS=${tenant_dns}
+      - WG_ALLOWED_IPS=${tenant_network}, ${wg_default_network}
+      - FLASK_SECRET_KEY=${wg_admin_password}
+      - FLASK_LOGIN_PASSWORD=${wg_admin_password}
     ports:
       - "80:80"
       - "51820:51820/udp"

@@ -33,6 +33,7 @@ WG_PORT = os.getenv("WG_PORT")
 WG_SUBNET = os.getenv("WG_DEFAULT_ADDRESS")  # Например, "10.10.11.0/24"
 WG_ALLOWED_IPS = os.getenv("WG_ALLOWED_IPS")
 WG_DNS = os.getenv("WG_DNS")
+WG_HOST = os.getenv("WG_HOST")
 USER_DATA_FILE = os.path.join(WG_CONFIG_DIR, "users.json")
 
 CLIENTS_DIR = os.path.join(WG_CONFIG_DIR, "clients")
@@ -160,7 +161,7 @@ DNS = {server_info['dns']}
 [Peer]
 PublicKey = {server_info['public_key']}
 PresharedKey = {preshared_key}
-Endpoint = {WG_HOST.split('/')[0]}:{server_info['port']}
+Endpoint = {WG_HOST}:{server_info['port']}
 AllowedIPs = {format_allowed_ips(WG_ALLOWED_IPS)}
 PersistentKeepalive = 25
 """

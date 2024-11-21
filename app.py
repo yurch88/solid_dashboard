@@ -30,7 +30,7 @@ def load_user(user_id):
 WG_CONFIG_DIR = os.getenv("WG_CONFIG_DIR")
 WG_INTERFACE = os.getenv("WG_INTERFACE")
 WG_PORT = os.getenv("WG_PORT")
-WG_HOST = os.getenv("WG_HOST")
+WG_SUBNET = os.getenv("WG_SUBNET")  # Подсеть сервера, например "10.10.11.0/24"
 WG_ALLOWED_IPS = os.getenv("WG_ALLOWED_IPS")
 WG_DNS = os.getenv("WG_DNS")
 USER_DATA_FILE = os.path.join(WG_CONFIG_DIR, "users.json")
@@ -76,10 +76,10 @@ def get_next_client_address():
         user_data[username].get("address").split("/")[0]
         for username in user_data if "address" in user_data[username]
     }
-    network = ipaddress.ip_network(WG_HOST, strict=False)
+    network = ipaddress.ip_network(WG_SUBNET, strict=False)
     for ip in network.hosts():
         candidate = str(ip)
-        if candidate not in existing_addresses and candidate != network.network_address:
+        if candidate not in existing_addresses:
             return f"{candidate}/32"
     raise ValueError("No available IP addresses in the subnet!")
 
@@ -181,17 +181,6 @@ PersistentKeepalive = 25
         return jsonify({"status": "success", "user": (username, user_data[username])})
     return jsonify({"status": "error", "message": "Invalid username"}), 400
 
-@app.route("/toggle_user/<username>", methods=["POST"])
-@login_required
-def toggle_user(username):
-    user_data = load_user_data()
-    if username in user_data:
-        current_status = user_data[username].get("active", True)
-        user_data[username]["active"] = not current_status
-        save_user_data(user_data)
-        return jsonify({"status": "success", "active": user_data[username]["active"]})
-    return jsonify({"status": "error", "message": "User not found"}), 404
-
 @app.route("/download_config/<username>")
 @login_required
 def download_config(username):
@@ -201,18 +190,6 @@ def download_config(username):
         if config_path and os.path.exists(config_path):
             return send_file(config_path, as_attachment=True)
     return "Config file not found", 404
-
-@app.route("/delete_config/<username>", methods=["POST"])
-@login_required
-def delete_config(username):
-    user_data = load_user_data()
-    if username in user_data:
-        config_path = user_data[username].get("config_path")
-        if config_path and os.path.exists(config_path):
-            os.remove(config_path)
-        del user_data[username]
-        save_user_data(user_data)
-    return jsonify({"status": "success"}), 200
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=80)

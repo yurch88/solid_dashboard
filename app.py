@@ -5,6 +5,7 @@ import os
 import subprocess
 import json
 from datetime import datetime
+import ipaddress
 
 # Загрузка переменных из .env файла
 load_dotenv()
@@ -67,6 +68,20 @@ def load_user_data():
 def save_user_data(data):
     with open(USER_DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
+
+def get_next_client_address():
+    """Generate the next available client IP address."""
+    user_data = load_user_data()
+    existing_addresses = {
+        user_data[username].get("address").split("/")[0]
+        for username in user_data if "address" in user_data[username]
+    }
+    network = ipaddress.ip_network(WG_HOST, strict=False)
+    for ip in network.hosts():
+        candidate = str(ip)
+        if candidate not in existing_addresses and candidate != network.network_address:
+            return f"{candidate}/32"
+    raise ValueError("No available IP addresses in the subnet!")
 
 def get_server_info():
     try:
@@ -134,15 +149,17 @@ def add_user():
         if not server_info:
             return jsonify({"status": "error", "message": "Server not configured"}), 500
 
+        client_address = get_next_client_address()
+
         client_config = f"""[Interface]
 PrivateKey = {private_key}
-Address = 10.10.11.2/32
+Address = {client_address}
 DNS = {server_info['dns']}
 
 [Peer]
 PublicKey = {server_info['public_key']}
 PresharedKey = {preshared_key}
-Endpoint = {WG_HOST}:{server_info['port']}
+Endpoint = {WG_HOST.split('/')[0]}:{server_info['port']}
 AllowedIPs = {format_allowed_ips(WG_ALLOWED_IPS)}
 PersistentKeepalive = 25
 """
@@ -154,6 +171,7 @@ PersistentKeepalive = 25
         user_data[username] = {
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "config_path": user_config_path,
+            "address": client_address,
             "public_key": public_key,
             "preshared_key": preshared_key,
             "active": True

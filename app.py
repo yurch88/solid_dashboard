@@ -7,7 +7,7 @@ import json
 from datetime import datetime
 import ipaddress
 
-# Загрузка переменных из .env
+# Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
@@ -17,7 +17,7 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
 
-# Mock user class for Flask-Login
+# User class for Flask-Login
 class User(UserMixin):
     def __init__(self, id):
         self.id = id
@@ -26,13 +26,13 @@ class User(UserMixin):
 def load_user(user_id):
     return User(user_id)
 
-# WireGuard параметры из переменных окружения
+# WireGuard parameters
 WG_CONFIG_DIR = os.getenv("WG_CONFIG_DIR", "/etc/wireguard")
-WG_INTERFACE = os.getenv("WG_INTERFACE", "wg0")
+WG_INTERFACE = os.getenv("WG_INTERFACE")
 WG_PORT = os.getenv("WG_PORT")
+WG_HOST = os.getenv("WG_HOST")
 WG_DNS = os.getenv("WG_DNS")
 WG_ALLOWED_IPS = os.getenv("WG_ALLOWED_IPS")
-WG_HOST = os.getenv("WG_HOST")
 CLIENTS_DIR = os.path.join(WG_CONFIG_DIR, "clients")
 USER_DATA_FILE = os.path.join(WG_CONFIG_DIR, "users.json")
 SERVER_PRIVATE_KEY_FILE = os.path.join(WG_CONFIG_DIR, "server_private.key")
@@ -43,7 +43,7 @@ if not os.path.exists(USER_DATA_FILE):
     with open(USER_DATA_FILE, "w") as f:
         json.dump({}, f)
 
-# Генерация ключей сервера, если они отсутствуют
+# Generate server keys if not present
 if not os.path.exists(SERVER_PRIVATE_KEY_FILE):
     private_key = subprocess.check_output(["wg", "genkey"]).decode("utf-8").strip()
     with open(SERVER_PRIVATE_KEY_FILE, "w") as f:
@@ -56,17 +56,17 @@ if not os.path.exists(SERVER_PUBLIC_KEY_FILE):
     with open(SERVER_PUBLIC_KEY_FILE, "w") as f:
         f.write(public_key)
 
-# Загрузка данных пользователей
+# Load user data
 def load_user_data():
     with open(USER_DATA_FILE, "r") as f:
         return json.load(f)
 
-# Сохранение данных пользователей
+# Save user data
 def save_user_data(data):
     with open(USER_DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
-# Получение следующего доступного IP-адреса
+# Get next available client IP
 def get_next_client_address(server_address):
     user_data = load_user_data()
     existing_addresses = {user["address"].split("/")[0] for user in user_data.values()}
@@ -74,9 +74,9 @@ def get_next_client_address(server_address):
     for ip in network.hosts():
         if str(ip) not in existing_addresses:
             return f"{ip}/32"
-    raise ValueError("Нет доступных IP-адресов в подсети!")
+    raise ValueError("No available IPs!")
 
-# Получение информации о сервере WireGuard
+# Get server information
 def get_server_info():
     config_path = os.path.join(WG_CONFIG_DIR, f"{WG_INTERFACE}.conf")
     server_info = {
@@ -84,8 +84,17 @@ def get_server_info():
         "Port": WG_PORT,
         "DNS": WG_DNS,
         "AllowedIPs": WG_ALLOWED_IPS,
-        "PublicKey": open(SERVER_PUBLIC_KEY_FILE).read().strip()
+        "PublicKey": open(SERVER_PUBLIC_KEY_FILE).read().strip(),
     }
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            for line in f:
+                if line.startswith("Address"):
+                    server_info["Address"] = line.split("=")[1].strip()
+                elif line.startswith("DNS"):
+                    server_info["DNS"] = line.split("=")[1].strip()
+                elif line.startswith("AllowedIPs"):
+                    server_info["AllowedIPs"] = line.split("=")[1].strip()
     return server_info
 
 @app.route("/")
@@ -100,7 +109,8 @@ def login():
             user = User(id=1)
             login_user(user)
             return redirect(url_for("dashboard"))
-        return render_template("login.html", error="Неверный пароль!")
+        else:
+            return render_template("login.html", error="Invalid password")
     return render_template("login.html")
 
 @app.route("/dashboard")
@@ -115,18 +125,15 @@ def dashboard():
 def add_user():
     username = request.form.get("username")
     if not username:
-        return jsonify({"status": "error", "message": "Имя пользователя не задано!"}), 400
-
+        return jsonify({"status": "error", "message": "Invalid username"}), 400
     user_data = load_user_data()
     if username in user_data:
-        return jsonify({"status": "error", "message": "Пользователь уже существует!"}), 400
-
+        return jsonify({"status": "error", "message": "User already exists"}), 400
     private_key = subprocess.check_output(["wg", "genkey"]).decode("utf-8").strip()
     public_key = subprocess.check_output(["wg", "pubkey"], input=private_key.encode("utf-8")).decode("utf-8").strip()
     preshared_key = subprocess.check_output(["wg", "genpsk"]).decode("utf-8").strip()
     server_info = get_server_info()
-    client_address = get_next_client_address(WG_CONFIG_DIR)
-
+    client_address = get_next_client_address(server_info["Address"])
     client_config = f"""
 [Interface]
 PrivateKey = {private_key}
@@ -140,36 +147,36 @@ Endpoint = {server_info['Address']}:{server_info['Port']}
 AllowedIPs = {server_info['AllowedIPs']}
 PersistentKeepalive = 25
 """
-
+    user_data[username] = {"address": client_address, "created_at": str(datetime.now())}
+    save_user_data(user_data)
     user_config_path = os.path.join(CLIENTS_DIR, f"{username}.conf")
     with open(user_config_path, "w") as f:
         f.write(client_config)
-
-    user_data[username] = {
-        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "address": client_address,
-        "config_path": user_config_path,
-        "active": True
-    }
-    save_user_data(user_data)
-
-    return jsonify({"status": "success", "user": (username, user_data[username])})
+    return jsonify({"status": "success", "config": client_config})
 
 @app.route("/download_config/<username>")
 @login_required
 def download_config(username):
     user_data = load_user_data()
-    if username in user_data:
-        config_path = user_data[username]["config_path"]
-        if os.path.exists(config_path):
-            return send_file(config_path, as_attachment=True)
+    if username not in user_data:
+        return "Config file not found", 404
+    config_path = os.path.join(CLIENTS_DIR, f"{username}.conf")
+    if os.path.exists(config_path):
+        return send_file(config_path, as_attachment=True)
     return "Config file not found", 404
 
-@app.route("/logout")
+@app.route("/delete_user/<username>", methods=["POST"])
 @login_required
-def logout():
-    logout_user()
-    return redirect(url_for("login"))
+def delete_user(username):
+    user_data = load_user_data()
+    if username not in user_data:
+        return jsonify({"status": "error", "message": "User not found"}), 404
+    user_config_path = os.path.join(CLIENTS_DIR, f"{username}.conf")
+    if os.path.exists(user_config_path):
+        os.remove(user_config_path)
+    del user_data[username]
+    save_user_data(user_data)
+    return jsonify({"status": "success"})
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=80)

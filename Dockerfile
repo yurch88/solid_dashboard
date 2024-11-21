@@ -10,7 +10,7 @@ RUN apk update && apk add --no-cache \
     dpkg \
     dumb-init \ # Утилита для корректного управления процессами внутри контейнера
     iptables \
-    iptables-legacy # Legacy iptables для совместимости с WireGuard
+    iptables-legacy  # Legacy iptables для совместимости с WireGuard
 
 # Настройка iptables-legacy
 RUN update-alternatives --install /sbin/iptables iptables /sbin/iptables-legacy 10 \

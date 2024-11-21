@@ -34,10 +34,31 @@ WG_ALLOWED_IPS = os.getenv("WG_ALLOWED_IPS")
 WG_DNS = os.getenv("WG_DNS")
 USER_DATA_FILE = os.path.join(WG_CONFIG_DIR, "users.json")
 
-# Проверка наличия файла для данных пользователей
+CLIENTS_DIR = os.path.join(WG_CONFIG_DIR, "clients")
+os.makedirs(CLIENTS_DIR, exist_ok=True)
+
 if not os.path.exists(USER_DATA_FILE):
     with open(USER_DATA_FILE, "w") as f:
         json.dump({}, f)
+
+SERVER_PRIVATE_KEY_FILE = os.path.join(WG_CONFIG_DIR, "server_private.key")
+SERVER_PUBLIC_KEY_FILE = os.path.join(WG_CONFIG_DIR, "server_public.key")
+
+if not os.path.exists(SERVER_PRIVATE_KEY_FILE):
+    private_key = subprocess.check_output(["wg", "genkey"]).decode("utf-8").strip()
+    with open(SERVER_PRIVATE_KEY_FILE, "w") as f:
+        f.write(private_key)
+    os.chmod(SERVER_PRIVATE_KEY_FILE, 0o600)
+
+if not os.path.exists(SERVER_PUBLIC_KEY_FILE):
+    with open(SERVER_PRIVATE_KEY_FILE, "r") as f:
+        private_key = f.read().strip()
+    public_key = subprocess.check_output(["wg", "pubkey"], input=private_key.encode("utf-8")).decode("utf-8").strip()
+    with open(SERVER_PUBLIC_KEY_FILE, "w") as f:
+        f.write(public_key)
+
+def format_allowed_ips(allowed_ips):
+    return ", ".join([ip.strip() for ip in allowed_ips.split(",")])
 
 def load_user_data():
     with open(USER_DATA_FILE, "r") as f:
@@ -49,29 +70,26 @@ def save_user_data(data):
 
 def get_server_info():
     try:
-        output = subprocess.check_output(["wg", "show"], text=True, stderr=subprocess.DEVNULL)
-        lines = output.splitlines()
         server_info = {}
-        for line in lines:
-            if "interface:" in line:
-                server_info["interface"] = line.split("interface:")[1].strip()
-            if "public key:" in line:
-                server_info["public_key"] = line.split("public key:")[1].strip()
         with open(f"{WG_CONFIG_DIR}/{WG_INTERFACE}.conf", "r") as f:
             for line in f:
-                if "Address" in line:
+                if line.startswith("Address"):
                     server_info["address"] = line.split("=")[1].strip()
-                if "ListenPort" in line:
-                    server_info["port"] = line.split("=")[1].strip()
-                if "AllowedIPs" in line:
-                    server_info["allowed_ips"] = line.split("=")[1].strip()
-                if "DNS" in line:
+                elif line.startswith("DNS"):
                     server_info["dns"] = line.split("=")[1].strip()
-        server_info["allowed_ips"] = server_info.get("allowed_ips", WG_ALLOWED_IPS)
-        server_info["dns"] = server_info.get("dns", WG_DNS)
+                elif line.startswith("AllowedIPs"):
+                    server_info["allowed_ips"] = line.split("=")[1].strip()
+                elif line.startswith("ListenPort"):
+                    server_info["port"] = line.split("=")[1].strip()
+
+        with open(SERVER_PUBLIC_KEY_FILE, "r") as f:
+            server_info["public_key"] = f.read().strip()
+
+        server_info["allowed_ips"] = format_allowed_ips(WG_ALLOWED_IPS)
+        server_info["dns"] = server_info.get("dns") or WG_DNS
         return server_info
     except Exception as e:
-        print(f"Error getting server info: {e}")
+        print(f"Error reading server info: {e}")
         return None
 
 @app.route("/")
@@ -82,7 +100,7 @@ def index():
 def login():
     if request.method == "POST":
         password = request.form.get("password")
-        if password == os.getenv("FLASK_LOGIN_PASSWORD"):  # Проверяем пароль из .env
+        if password == os.getenv("FLASK_LOGIN_PASSWORD"):
             user = User(id=1)
             login_user(user)
             return redirect(url_for("dashboard"))
@@ -99,18 +117,6 @@ def dashboard():
         "dashboard.html", user=current_user, users=user_data.items(), server_info=server_info
     )
 
-@app.route("/get_users")
-@login_required
-def get_users():
-    user_data = load_user_data()
-    return jsonify(user_data)
-
-@app.route("/logout")
-@login_required
-def logout():
-    logout_user()
-    return redirect(url_for("login"))
-
 @app.route("/add_user", methods=["POST"])
 @login_required
 def add_user():
@@ -121,9 +127,7 @@ def add_user():
             return jsonify({"status": "error", "message": "User already exists"}), 400
 
         private_key = subprocess.check_output(["wg", "genkey"]).decode("utf-8").strip()
-        public_key = subprocess.check_output(
-            ["wg", "pubkey"], input=private_key.encode("utf-8")
-        ).decode("utf-8").strip()
+        public_key = subprocess.check_output(["wg", "pubkey"], input=private_key.encode("utf-8")).decode("utf-8").strip()
         preshared_key = subprocess.check_output(["wg", "genpsk"]).decode("utf-8").strip()
 
         server_info = get_server_info()
@@ -132,24 +136,26 @@ def add_user():
 
         client_config = f"""[Interface]
 PrivateKey = {private_key}
-Address = {server_info['address']}
+Address = 10.10.11.2/32
 DNS = {server_info['dns']}
 
 [Peer]
 PublicKey = {server_info['public_key']}
 PresharedKey = {preshared_key}
 Endpoint = {WG_HOST}:{server_info['port']}
-AllowedIPs = {server_info['allowed_ips']}
+AllowedIPs = {format_allowed_ips(WG_ALLOWED_IPS)}
 PersistentKeepalive = 25
 """
 
-        user_config_path = os.path.join(WG_CONFIG_DIR, f"{username}.conf")
+        user_config_path = os.path.join(CLIENTS_DIR, f"{username}.conf")
         with open(user_config_path, "w") as f:
             f.write(client_config)
 
         user_data[username] = {
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "config_path": user_config_path,
+            "public_key": public_key,
+            "preshared_key": preshared_key,
             "active": True
         }
         save_user_data(user_data)

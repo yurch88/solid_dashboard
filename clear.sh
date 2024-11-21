@@ -21,5 +21,8 @@ docker image rm -f $(docker image ls -q) 2>/dev/null || true
 echo "Очистка неиспользуемых данных Docker..."
 docker system prune -af --volumes
 
+# Уничтожить директорию хранения конфигов
+rm -r /etc/wireguard
+
 # Успешное завершение
 echo "Система Docker очищена."

@@ -32,8 +32,17 @@ ListenPort = ${WG_PORT}
 DNS = ${WG_DNS}
 SaveConfig = true
 
+PostUp = iptables -t nat -A POSTROUTING -s ${WG_DEFAULT_ADDRESS%/*} -o eth0 -j MASQUERADE; \
+         iptables -A INPUT -p udp -m udp --dport ${WG_PORT} -j ACCEPT; \
+         iptables -A FORWARD -i wg0 -j ACCEPT; \
+         iptables -A FORWARD -o wg0 -j ACCEPT
+PostDown = iptables -t nat -D POSTROUTING -s ${WG_DEFAULT_ADDRESS%/*} -o eth0 -j MASQUERADE; \
+           iptables -D INPUT -p udp -m udp --dport ${WG_PORT} -j ACCEPT; \
+           iptables -D FORWARD -i wg0 -j ACCEPT; \
+           iptables -D FORWARD -o wg0 -j ACCEPT
+
 [Peer]
-PublicKey = ${SERVER_PUBLIC_KEY}  # Убедимся, что публичный ключ указан
+PublicKey = ${SERVER_PUBLIC_KEY}
 AllowedIPs = ${WG_ALLOWED_IPS}
 EOF
 fi

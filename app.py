@@ -26,15 +26,12 @@ class User(UserMixin):
 def load_user(user_id):
     return User(user_id)
 
-# Параметры WireGuard из .env
-WG_CONFIG_DIR = os.getenv("WG_CONFIG_DIR")
-WG_INTERFACE = os.getenv("WG_INTERFACE")
-WG_PORT = os.getenv("WG_PORT")
-WG_SUBNET = os.getenv("WG_DEFAULT_ADDRESS")  # Например, "10.10.11.0/24"
-WG_ALLOWED_IPS = os.getenv("WG_ALLOWED_IPS")
-WG_DNS = os.getenv("WG_DNS")
-WG_HOST = os.getenv("WG_HOST")
+# Параметры WireGuard
+WG_CONFIG_DIR = os.getenv("WG_CONFIG_DIR", "/etc/wireguard")
+WG_INTERFACE = os.getenv("WG_INTERFACE", "wg0")
 USER_DATA_FILE = os.path.join(WG_CONFIG_DIR, "users.json")
+SERVER_PRIVATE_KEY_FILE = os.path.join(WG_CONFIG_DIR, "server_private.key")
+SERVER_PUBLIC_KEY_FILE = os.path.join(WG_CONFIG_DIR, "server_public.key")
 
 CLIENTS_DIR = os.path.join(WG_CONFIG_DIR, "clients")
 os.makedirs(CLIENTS_DIR, exist_ok=True)
@@ -43,9 +40,7 @@ if not os.path.exists(USER_DATA_FILE):
     with open(USER_DATA_FILE, "w") as f:
         json.dump({}, f)
 
-SERVER_PRIVATE_KEY_FILE = os.path.join(WG_CONFIG_DIR, "server_private.key")
-SERVER_PUBLIC_KEY_FILE = os.path.join(WG_CONFIG_DIR, "server_public.key")
-
+# Создание ключей, если их нет
 if not os.path.exists(SERVER_PRIVATE_KEY_FILE):
     private_key = subprocess.check_output(["wg", "genkey"]).decode("utf-8").strip()
     with open(SERVER_PRIVATE_KEY_FILE, "w") as f:
@@ -59,9 +54,6 @@ if not os.path.exists(SERVER_PUBLIC_KEY_FILE):
     with open(SERVER_PUBLIC_KEY_FILE, "w") as f:
         f.write(public_key)
 
-def format_allowed_ips(allowed_ips):
-    return ", ".join([ip.strip() for ip in allowed_ips.split(",")])
-
 def load_user_data():
     with open(USER_DATA_FILE, "r") as f:
         return json.load(f)
@@ -70,6 +62,36 @@ def save_user_data(data):
     with open(USER_DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
+def get_server_info():
+    """Считывание текущей конфигурации WireGuard."""
+    try:
+        config_path = os.path.join(WG_CONFIG_DIR, f"{WG_INTERFACE}.conf")
+        server_info = {
+            "interface": WG_INTERFACE,
+            "config_path": config_path,
+            "private_key": open(SERVER_PRIVATE_KEY_FILE, "r").read().strip(),
+            "public_key": open(SERVER_PUBLIC_KEY_FILE, "r").read().strip(),
+        }
+
+        with open(config_path, "r") as f:
+            for line in f:
+                if line.startswith("Address"):
+                    server_info["address"] = line.split("=")[1].strip()
+                elif line.startswith("ListenPort"):
+                    server_info["port"] = line.split("=")[1].strip()
+                elif line.startswith("DNS"):
+                    server_info["dns"] = line.split("=")[1].strip()
+                elif line.startswith("AllowedIPs"):
+                    server_info["allowed_ips"] = line.split("=")[1].strip()
+
+        # Дополнительно считываем IP сервера для клиентов
+        server_info["host"] = os.getenv("WG_HOST", server_info["address"].split("/")[0])
+
+        return server_info
+    except Exception as e:
+        print(f"Error reading server info: {e}")
+        return None
+
 def get_next_client_address():
     """Генерация следующего доступного IP-адреса для клиента."""
     user_data = load_user_data()
@@ -77,62 +99,12 @@ def get_next_client_address():
         user_data[username].get("address").split("/")[0]
         for username in user_data if "address" in user_data[username]
     }
-    network = ipaddress.ip_network(WG_SUBNET, strict=False)
+    network = ipaddress.ip_network(get_server_info()["address"], strict=False)
     for ip in network.hosts():
         candidate = str(ip)
         if candidate not in existing_addresses and candidate != network.network_address:
             return f"{candidate}/32"
     raise ValueError("Нет доступных IP-адресов в подсети!")
-
-def get_server_info():
-    """Получение информации о сервере."""
-    try:
-        server_info = {}
-        with open(f"{WG_CONFIG_DIR}/{WG_INTERFACE}.conf", "r") as f:
-            for line in f:
-                if line.startswith("Address"):
-                    server_info["address"] = line.split("=")[1].strip()
-                elif line.startswith("DNS"):
-                    server_info["dns"] = line.split("=")[1].strip()
-                elif line.startswith("AllowedIPs"):
-                    server_info["allowed_ips"] = line.split("=")[1].strip()
-                elif line.startswith("ListenPort"):
-                    server_info["port"] = line.split("=")[1].strip()
-
-        with open(SERVER_PUBLIC_KEY_FILE, "r") as f:
-            server_info["public_key"] = f.read().strip()
-
-        server_info["allowed_ips"] = format_allowed_ips(WG_ALLOWED_IPS)
-        server_info["dns"] = server_info.get("dns") or WG_DNS
-        return server_info
-    except Exception as e:
-        print(f"Error reading server info: {e}")
-        return None
-
-@app.route("/")
-def index():
-    return redirect(url_for("login"))
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        password = request.form.get("password")
-        if password == os.getenv("FLASK_LOGIN_PASSWORD"):
-            user = User(id=1)
-            login_user(user)
-            return redirect(url_for("dashboard"))
-        else:
-            return render_template("login.html", error="Invalid password")
-    return render_template("login.html")
-
-@app.route("/dashboard")
-@login_required
-def dashboard():
-    user_data = load_user_data()
-    server_info = get_server_info()
-    return render_template(
-        "dashboard.html", user=current_user, users=user_data.items(), server_info=server_info
-    )
 
 @app.route("/add_user", methods=["POST"])
 @login_required
@@ -161,8 +133,8 @@ DNS = {server_info['dns']}
 [Peer]
 PublicKey = {server_info['public_key']}
 PresharedKey = {preshared_key}
-Endpoint = {WG_HOST}:{server_info['port']}
-AllowedIPs = {format_allowed_ips(WG_ALLOWED_IPS)}
+Endpoint = {server_info['host']}:{server_info['port']}
+AllowedIPs = {server_info['allowed_ips']}
 PersistentKeepalive = 25
 """
 
@@ -182,16 +154,6 @@ PersistentKeepalive = 25
 
         return jsonify({"status": "success", "user": (username, user_data[username])})
     return jsonify({"status": "error", "message": "Invalid username"}), 400
-
-@app.route("/download_config/<username>")
-@login_required
-def download_config(username):
-    user_data = load_user_data()
-    if username in user_data:
-        config_path = user_data[username].get("config_path")
-        if config_path and os.path.exists(config_path):
-            return send_file(config_path, as_attachment=True)
-    return "Config file not found", 404
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=80)

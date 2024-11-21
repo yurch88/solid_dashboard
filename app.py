@@ -5,6 +5,7 @@ import os
 import subprocess
 import json
 from datetime import datetime
+import ipaddress
 
 # Загрузка переменных из .env файла
 load_dotenv()
@@ -29,7 +30,7 @@ def load_user(user_id):
 WG_CONFIG_DIR = os.getenv("WG_CONFIG_DIR")
 WG_INTERFACE = os.getenv("WG_INTERFACE")
 WG_PORT = os.getenv("WG_PORT")
-WG_HOST = os.getenv("WG_HOST")
+WG_SUBNET = os.getenv("WG_DEFAULT_ADDRESS")  # Например, "10.10.11.0/24"
 WG_ALLOWED_IPS = os.getenv("WG_ALLOWED_IPS")
 WG_DNS = os.getenv("WG_DNS")
 USER_DATA_FILE = os.path.join(WG_CONFIG_DIR, "users.json")
@@ -68,7 +69,22 @@ def save_user_data(data):
     with open(USER_DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
+def get_next_client_address():
+    """Генерация следующего доступного IP-адреса для клиента."""
+    user_data = load_user_data()
+    existing_addresses = {
+        user_data[username].get("address").split("/")[0]
+        for username in user_data if "address" in user_data[username]
+    }
+    network = ipaddress.ip_network(WG_SUBNET, strict=False)
+    for ip in network.hosts():
+        candidate = str(ip)
+        if candidate not in existing_addresses and candidate != network.network_address:
+            return f"{candidate}/32"
+    raise ValueError("Нет доступных IP-адресов в подсети!")
+
 def get_server_info():
+    """Получение информации о сервере."""
     try:
         server_info = {}
         with open(f"{WG_CONFIG_DIR}/{WG_INTERFACE}.conf", "r") as f:
@@ -134,16 +150,17 @@ def add_user():
         if not server_info:
             return jsonify({"status": "error", "message": "Server not configured"}), 500
 
-        # Изменено: Address использует маску /24 для совместимости
+        client_address = get_next_client_address()
+
         client_config = f"""[Interface]
 PrivateKey = {private_key}
-Address = {WG_HOST}/24
+Address = {client_address}
 DNS = {server_info['dns']}
 
 [Peer]
 PublicKey = {server_info['public_key']}
 PresharedKey = {preshared_key}
-Endpoint = {WG_HOST}:{server_info['port']}
+Endpoint = {WG_HOST.split('/')[0]}:{server_info['port']}
 AllowedIPs = {format_allowed_ips(WG_ALLOWED_IPS)}
 PersistentKeepalive = 25
 """
@@ -155,6 +172,7 @@ PersistentKeepalive = 25
         user_data[username] = {
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "config_path": user_config_path,
+            "address": client_address,
             "public_key": public_key,
             "preshared_key": preshared_key,
             "active": True
@@ -163,17 +181,6 @@ PersistentKeepalive = 25
 
         return jsonify({"status": "success", "user": (username, user_data[username])})
     return jsonify({"status": "error", "message": "Invalid username"}), 400
-
-@app.route("/toggle_user/<username>", methods=["POST"])
-@login_required
-def toggle_user(username):
-    user_data = load_user_data()
-    if username in user_data:
-        current_status = user_data[username].get("active", True)
-        user_data[username]["active"] = not current_status
-        save_user_data(user_data)
-        return jsonify({"status": "success", "active": user_data[username]["active"]})
-    return jsonify({"status": "error", "message": "User not found"}), 404
 
 @app.route("/download_config/<username>")
 @login_required
@@ -184,18 +191,6 @@ def download_config(username):
         if config_path and os.path.exists(config_path):
             return send_file(config_path, as_attachment=True)
     return "Config file not found", 404
-
-@app.route("/delete_config/<username>", methods=["POST"])
-@login_required
-def delete_config(username):
-    user_data = load_user_data()
-    if username in user_data:
-        config_path = user_data[username].get("config_path")
-        if config_path and os.path.exists(config_path):
-            os.remove(config_path)
-        del user_data[username]
-        save_user_data(user_data)
-    return jsonify({"status": "success"}), 200
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=80)

@@ -40,10 +40,6 @@ PostDown = iptables -t nat -D POSTROUTING -s ${WG_DEFAULT_ADDRESS%/*} -o eth0 -j
            iptables -D INPUT -p udp -m udp --dport ${WG_PORT} -j ACCEPT; \
            iptables -D FORWARD -i wg0 -j ACCEPT; \
            iptables -D FORWARD -o wg0 -j ACCEPT
-
-[Peer]
-PublicKey = ${SERVER_PUBLIC_KEY}
-AllowedIPs = ${WG_ALLOWED_IPS}
 EOF
 fi
 

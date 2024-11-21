@@ -9,11 +9,11 @@ RUN apk update && apk add --no-cache \
     dumb-init \
     iptables \
     iptables-legacy
-    
+
 RUN update-alternatives --install /sbin/iptables iptables /sbin/iptables-legacy 10 \
     --slave /sbin/iptables-restore iptables-restore /sbin/iptables-legacy-restore \
     --slave /sbin/iptables-save iptables-save /sbin/iptables-legacy-save
-    
+
 COPY app.py /app/app.py
 COPY requirements.txt /app/requirements.txt
 COPY templates/ /app/templates/

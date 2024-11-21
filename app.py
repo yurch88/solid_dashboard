@@ -5,8 +5,8 @@ import os
 import subprocess
 import json
 from datetime import datetime
+import ipaddress
 
-# Загрузка переменных из .env файла
 load_dotenv()
 
 app = Flask(__name__)
@@ -16,7 +16,6 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
 
-# Mock user for authentication
 class User(UserMixin):
     def __init__(self, id):
         self.id = id
@@ -25,7 +24,6 @@ class User(UserMixin):
 def load_user(user_id):
     return User(user_id)
 
-# Параметры WireGuard из .env
 WG_CONFIG_DIR = os.getenv("WG_CONFIG_DIR")
 WG_INTERFACE = os.getenv("WG_INTERFACE")
 WG_PORT = os.getenv("WG_PORT")
@@ -92,6 +90,15 @@ def get_server_info():
         print(f"Error reading server info: {e}")
         return None
 
+def get_next_client_address(server_address):
+    user_data = load_user_data()
+    existing_addresses = {user["address"].split("/")[0] for user in user_data.values()}
+    network = ipaddress.ip_network(server_address, strict=False)
+    for ip in network.hosts():
+        if str(ip) not in existing_addresses:
+            return f"{ip}/32"
+    raise ValueError("No available IPs!")
+
 @app.route("/")
 def index():
     return redirect(url_for("login"))
@@ -134,9 +141,11 @@ def add_user():
         if not server_info:
             return jsonify({"status": "error", "message": "Server not configured"}), 500
 
+        client_address = get_next_client_address(server_info["address"])
+
         client_config = f"""[Interface]
 PrivateKey = {private_key}
-Address = 10.10.11.2/32
+Address = {client_address}
 DNS = {server_info['dns']}
 
 [Peer]
@@ -156,6 +165,7 @@ PersistentKeepalive = 25
             "config_path": user_config_path,
             "public_key": public_key,
             "preshared_key": preshared_key,
+            "address": client_address,
             "active": True
         }
         save_user_data(user_data)

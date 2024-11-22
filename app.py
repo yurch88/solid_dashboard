@@ -7,7 +7,6 @@ import json
 from datetime import datetime
 import ipaddress
 
-# Загрузка переменных из файла .env
 load_dotenv()
 
 app = Flask(__name__)
@@ -17,7 +16,6 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
 
-# Класс для авторизации пользователя
 class User(UserMixin):
     def __init__(self, id):
         self.id = id
@@ -26,13 +24,11 @@ class User(UserMixin):
 def load_user(user_id):
     return User(user_id)
 
-# Параметры WireGuard из окружения
 WG_CONFIG_DIR = os.getenv("WG_CONFIG_DIR")
 WG_INTERFACE = os.getenv("WG_INTERFACE")
 WG_PORT = os.getenv("WG_PORT")
 WG_HOST = os.getenv("WG_HOST")
 WG_ALLOWED_IPS = os.getenv("WG_ALLOWED_IPS")
-WG_DEFAULT_NETWORK = os.getenv("WG_DEFAULT_NETWORK")
 WG_DNS = os.getenv("WG_DNS")
 USER_DATA_FILE = os.path.join(WG_CONFIG_DIR, "users.json")
 
@@ -72,24 +68,32 @@ def save_user_data(data):
 
 def get_server_info():
     try:
-        server_info = {
-            "address": WG_DEFAULT_NETWORK,
-            "dns": WG_DNS,
-            "allowed_ips": WG_ALLOWED_IPS,
-            "port": WG_PORT,
-        }
+        server_info = {}
+        with open(f"{WG_CONFIG_DIR}/{WG_INTERFACE}.conf", "r") as f:
+            for line in f:
+                if line.startswith("Address"):
+                    server_info["address"] = line.split("=")[1].strip()
+                elif line.startswith("DNS"):
+                    server_info["dns"] = line.split("=")[1].strip()
+                elif line.startswith("AllowedIPs"):
+                    server_info["allowed_ips"] = line.split("=")[1].strip()
+                elif line.startswith("ListenPort"):
+                    server_info["port"] = line.split("=")[1].strip()
+
         with open(SERVER_PUBLIC_KEY_FILE, "r") as f:
             server_info["public_key"] = f.read().strip()
+
+        server_info["allowed_ips"] = format_allowed_ips(WG_ALLOWED_IPS)
+        server_info["dns"] = server_info.get("dns") or WG_DNS
         return server_info
     except Exception as e:
         print(f"Error reading server info: {e}")
         return None
 
-def get_next_client_address():
-    """Получение следующего доступного IP-адреса из диапазона WG_DEFAULT_NETWORK."""
+def get_next_client_address(server_address):
     user_data = load_user_data()
     existing_addresses = {user["address"].split("/")[0] for user in user_data.values()}
-    network = ipaddress.ip_network(WG_DEFAULT_NETWORK, strict=False)
+    network = ipaddress.ip_network(server_address, strict=False)
     for ip in network.hosts():
         if str(ip) not in existing_addresses:
             return f"{ip}/32"
@@ -143,18 +147,18 @@ def add_user():
         if not server_info:
             return jsonify({"status": "error", "message": "Server not configured"}), 500
 
-        client_address = get_next_client_address()
+        client_address = get_next_client_address(server_info["address"])
 
         client_config = f"""[Interface]
 PrivateKey = {private_key}
 Address = {client_address}
-DNS = {WG_DNS}
+DNS = {server_info['dns']}
 
 [Peer]
 PublicKey = {server_info['public_key']}
 PresharedKey = {preshared_key}
-Endpoint = {WG_HOST}:{WG_PORT}
-AllowedIPs = {WG_ALLOWED_IPS}
+Endpoint = {WG_HOST}:{server_info['port']}
+AllowedIPs = {format_allowed_ips(WG_ALLOWED_IPS)}
 PersistentKeepalive = 25
 """
 
@@ -165,8 +169,10 @@ PersistentKeepalive = 25
         user_data[username] = {
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "config_path": user_config_path,
+            "public_key": public_key,
+            "preshared_key": preshared_key,
             "address": client_address,
-            "active": True,
+            "active": True
         }
         save_user_data(user_data)
 

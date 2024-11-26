@@ -108,24 +108,24 @@
             bottom: 0;
             background-color: #ccc;
             transition: .4s;
-            border-radius: 34px; /*<----added (улучшение визуального стиля) */
+            border-radius: 34px;
         }
         .slider:before {
             position: absolute;
             content: "";
             height: 15px;
             width: 15px;
-            border-radius: 50px; /*<----added (улучшение формы переключателя) */
+            border-radius: 50px;
             left: 4px;
             bottom: 4px;
             background-color: white;
             transition: .4s;
         }
         input:checked + .slider {
-            background-color: #66758d; /*<----added (цвет активного переключателя) */
+            background-color: #66758d;
         }
         input:checked + .slider:before {
-            transform: translateX(26px); /*<----added (анимация при переключении) */
+            transform: translateX(26px);
         }
         .user-container .user .action-buttons {
             display: flex;
@@ -173,43 +173,42 @@
 
     <script>
         function addUser() {
-            var username = prompt('Enter the username for the new client:');
+            const username = prompt("Enter username for the new client:");
             if (username) {
                 fetch('/add_user', {
                     method: 'POST',
-                    body: new URLSearchParams({ 'username': username }),
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({ 'username': username })
                 })
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === "success") {
-                        const user = data.user;
                         const userList = document.getElementById("user-list");
-
-                        const newUser = document.createElement("div");
-                        newUser.className = "user";
-                        newUser.id = `user-${user[0]}`;
-                        newUser.innerHTML = `
-                            <span>
-                                ${user[0]} <br>
-                                <small>Created on ${user[1]["created_at"]}</small>
-                            </span>
-                            <div class="action-buttons">
-                                <label class="switch">
-                                    <input type="checkbox" id="toggle-${user[0]}" onchange="toggleUser('${user[0]}')" checked>
-                                    <span class="slider"></span>
-                                </label>
-                                <button onclick="downloadConfig('${user[0]}')">
-                                    <img src="{{ url_for('static', filename='images/download.png') }}" alt="Download">
-                                </button>
-                                <button onclick="deleteConfig('${user[0]}')">
-                                    <img src="{{ url_for('static', filename='images/recycle.png') }}" alt="Delete">
-                                </button>
-                            </div>
-                        `;
-                        userList.appendChild(newUser);
-                    } else {
-                        alert(data.message);
+                        const user = data.user;
+                        for (const [key, value] of Object.entries(user)) {
+                            const newUser = document.createElement("div");
+                            newUser.className = "user";
+                            newUser.id = `user-${key}`;
+                            newUser.innerHTML = `
+                                <span>
+                                    ${key} <br>
+                                    <small>Created on ${value.created_at}</small>
+                                </span>
+                                <div class="action-buttons">
+                                    <label class="switch">
+                                        <input type="checkbox" id="toggle-${key}" onchange="toggleUser('${key}')" checked>
+                                        <span class="slider"></span>
+                                    </label>
+                                    <button onclick="downloadConfig('${key}')">
+                                        <img src="{{ url_for('static', filename='images/download.png') }}" alt="Download">
+                                    </button>
+                                    <button onclick="deleteConfig('${key}')">
+                                        <img src="{{ url_for('static', filename='images/recycle.png') }}" alt="Delete">
+                                    </button>
+                                </div>
+                            `;
+                            userList.appendChild(newUser);
+                        }
                     }
                 });
             }
@@ -231,14 +230,13 @@
         }
 
         function deleteConfig(username) {
+            const userElement = document.getElementById(`user-${username}`);
+            if (userElement) {
+                userElement.remove();
+            }
             fetch(`/delete_config/${username}`, { method: 'POST' })
                 .then(response => response.json())
-                .then(data => {
-                    if (data.status === "success") {
-                        const userElement = document.getElementById(`user-${username}`);
-                        userElement.remove();
-                    }
-                });
+                .catch(error => console.error("Ошибка при удалении пользователя:", error));
         }
 
         function logout() {

@@ -85,7 +85,6 @@ def add_user():
             f"echo {client_private_key} | wg pubkey"
         ]).strip().decode("utf-8")
 
-        # Получение переменных окружения
         server_url = os.getenv("SERVERURL")
         server_port = os.getenv("SERVERPORT")
         peer_dns = os.getenv("PEERDNS")

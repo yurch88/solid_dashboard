@@ -1,18 +1,16 @@
-FROM lscr.io/linuxserver/wireguard:latest
+FROM python:3.11-slim
 
-RUN apk update && apk add --no-cache \
-    python3 \
-    py3-pip \
-    wireguard-tools \
-    bash \
-    dpkg \
+# Установка зависимостей для Docker CLI
+RUN apt-get update && apt-get install -y --no-install-recommends \
     dumb-init \
-    iptables \
-    iptables-legacy
-
-RUN update-alternatives --install /sbin/iptables iptables /sbin/iptables-legacy 10 \
-    --slave /sbin/iptables-restore iptables-restore /sbin/iptables-legacy-restore \
-    --slave /sbin/iptables-save iptables-save /sbin/iptables-legacy-save
+    curl \
+    gnupg \
+    lsb-release \
+    bash && \
+    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list && \
+    apt-get update && apt-get install -y --no-install-recommends docker-ce-cli && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY app.py /app/app.py
 COPY requirements.txt /app/requirements.txt
@@ -28,11 +26,7 @@ RUN python3 -m venv /app/venv && \
 WORKDIR /app
 
 EXPOSE 80
-EXPOSE 51820/udp
 
-HEALTHCHECK CMD /usr/bin/timeout 5s /bin/sh -c "/usr/bin/wg show | /bin/grep -q interface || exit 1" \
-    --interval=1m \
-    --timeout=5s \
-    --retries=3
+HEALTHCHECK CMD curl --fail http://localhost:80/ || exit 1
 
 ENTRYPOINT ["/usr/bin/dumb-init", "/entrypoint.sh"]
